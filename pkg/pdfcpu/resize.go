@@ -154,6 +154,7 @@ func handleBgColAndBorder(dx, dy float64, cropBox *types.Rectangle, bb *[]byte, 
 }
 
 func resizePage(ctx *model.Context, pageNr int, res *model.Resize) error {
+	var XOffset, YOffset float64
 
 	d, _, inhPAttrs, err := ctx.PageDict(pageNr, false)
 	if err != nil {
@@ -165,16 +166,33 @@ func resizePage(ctx *model.Context, pageNr int, res *model.Resize) error {
 		cropBox = inhPAttrs.CropBox
 	}
 
+	if res.Scale < 1 {
+		XOffset += (cropBox.Width() * (1 - res.Scale)) / 2
+		YOffset += (cropBox.Height() * (1 - res.Scale)) / 2
+	}
+
 	// Account for existing rotation.
 	if inhPAttrs.Rotate != 0 {
 		if types.IntMemberOf(inhPAttrs.Rotate, []int{+90, -90, +270, -270}) {
 			w := cropBox.Width()
 			cropBox.UR.X = cropBox.LL.X + cropBox.Height()
 			cropBox.UR.Y = cropBox.LL.Y + w
+
+			XOffset, YOffset = YOffset, XOffset
 		}
 	}
 
+	if res.Scale < 1 {
+		cropBox.LL.X += XOffset
+		cropBox.LL.Y += YOffset
+	}
+
 	r, sc, sin, cos, dx, dy := prepResize(res, cropBox)
+
+	if res.Scale < 1 {
+		dx += XOffset
+		dy += YOffset
+	}
 
 	m := matrix.CalcTransformMatrix(sc, sc, sin, cos, dx, dy)
 
@@ -220,7 +238,9 @@ func resizePage(ctx *model.Context, pageNr int, res *model.Resize) error {
 
 	d["Contents"] = *ir
 
-	d.Update("MediaBox", cropBox.Array())
+	if res.Scale > 1 {
+		d.Update("MediaBox", cropBox.Array())
+	}
 	d.Delete("Rotate")
 	d.Delete("CropBox")
 
